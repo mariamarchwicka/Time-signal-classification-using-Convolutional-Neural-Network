@@ -5,7 +5,7 @@ Created on Thu Mar  7 21:09:59 2019
 @author:    DATAmadness
 Github:     https://github.com/datamadness
 Blog:       ttps://datamadness.github.io
-Description: Extracts Kaggle power transmission time domain discharge data for Train/Eval, 
+Description: Extracts Kaggle power transmission time domain discharge data for Train/Eval,
 calculates SFFT, pools the 2D matrix and saves the reduced data into TFRs
 Includes upscaling for highly imbalanced classes
 """
@@ -24,9 +24,9 @@ import math
 eval_fraction = 0.25 #fraction of data for evaluation purposes
 
 #Specify location of the source and output data
-data_path = 'G:\\powerLineData\\all\\'
-output_path_train = 'G:\\powerLineData\\TFR_train_sfft\\'
-output_path_eval = 'G:\\powerLineData\\TFR_eval_sfft\\'
+data_path = r'../data/'
+output_path_train = r'./TFR_train_sfft/'
+output_path_eval = r'./TFR_eval_sfft/'
 os.listdir(data_path)
 
 #Get the metadata for the entire training dataset
@@ -45,7 +45,7 @@ for i, ID in enumerate(trainIDs):
     trainWeights[i] = sum(meta_train['target'].loc[meta_train['id_measurement'] == ID])
 
 #%% Functions
-    
+
 # Function that selects data of random measurement with a discharge(weighted selection with replacement based on trainWeights)
 def select_random_discharge():
     ID = random.choices(trainIDs, weights = trainWeights, k = 1)[0]
@@ -58,13 +58,13 @@ def select_random_discharge():
     labels = meta_train['target'].iloc[columns]
 
     return ID, rolled_measurement, labels
-    
+
 # Function gets data of a specific measurement based on measurement_id
 def get_measurement(ID):
     columns=[str(i) for i in range(ID*3,ID*3+3,1)]
     measurement = pq.read_pandas(data_path + 'train.parquet', columns).to_pandas()
     labels = meta_train['target'].iloc[columns]
-    
+
     return ID, measurement, labels
 
 # Function to parse a single record from the orig MNIST data into dict
@@ -79,14 +79,14 @@ def parser(signal, signal_ID, measurement_ID, label):
 
 # Create the example object with features
 def get_tensor_object(single_record):
-    
+
     tensor = tf.train.Example(features=tf.train.Features(feature={
         'signal': tf.train.Feature(
             float_list=tf.train.FloatList(value=single_record['signal'])),
         'signal_ID': tf.train.Feature(
             int64_list=tf.train.Int64List(value=[single_record['signal_ID']])),
         'measurement_ID': tf.train.Feature(
-            int64_list=tf.train.Int64List(value=[single_record['measurement_ID']])),                
+            int64_list=tf.train.Int64List(value=[single_record['measurement_ID']])),
         'label': tf.train.Feature(
             int64_list=tf.train.Int64List(value=[single_record['label']]))
     }))
@@ -94,15 +94,15 @@ def get_tensor_object(single_record):
 
 # Execute SFFT on phase signal data and reduce the resulting 2D matrix
 def signal_sfft(phase_data,plot = False):
-    
+
     fs = 40e6
     f, t, Zxx = signal.stft(phase_data, fs, nperseg=1999,boundary = None)
-    
+
     reducedZ = block_reduce(np.abs(Zxx), block_size=(4, 4), func=np.max)
 
     reducedf = f[0::4]
     reducedt = t[0::4]
-    
+
     if plot:
         plt.figure(figsize = (16, 10))
         plt.pcolormesh(reducedt, reducedf, reducedZ, rasterized=True, linewidth=0, vmin=0, vmax=0.5)
@@ -118,25 +118,25 @@ def generate_TFR(IDs, measurements_per_file, upscale, output_path):
 
     #Artificaially generate every x measurement
     generate_every = 4
-    
+
     numFiles = math.ceil(len(IDs) / measurements_per_file)
-    
+
     for file_id in range(numFiles):
         print('\n Creating file # %2d' %file_id)
-        with tf.python_io.TFRecordWriter(output_path + 'train_data_' + str(file_id) + '.tfrecord') as tfwriter:
-            
+        with tf.io.TFRecordWriter(output_path + 'train_data_' + str(file_id) + '.tfrecord') as tfwriter:
+
             measurements_left = len(IDs) - file_id * measurements_per_file
             if measurements_left < measurements_per_file:
                 iterations = measurements_left
             else:
                 iterations = measurements_per_file
-      
+
             # Iterate through all measurements
             for i in range(iterations):
-                
+
                 measurement = get_measurement(IDs[file_id * measurements_per_file + i])
                 #measurement = select_random_discharge()
-    
+
                 def commit_record(measurement):
                     for j in range(3):
                         measurement_ID = measurement[0]
@@ -148,9 +148,9 @@ def generate_TFR(IDs, measurements_per_file, upscale, output_path):
                         record_tensor = get_tensor_object(parsed_data)
                         # Append tensor data into tfrecord file
                         tfwriter.write(record_tensor.SerializeToString())
-                        
+
                 commit_record(measurement)
-                
+
                 if upscale and (((i + 1) % generate_every) == 0):
                     measurement = select_random_discharge()
                     commit_record(measurement)
@@ -165,9 +165,3 @@ generate_TFR(trainIDs, measurements_per_file = 8, upscale = True, output_path = 
 
 #Generate TFR records for evaluation data - NO upscaling
 generate_TFR(evalIDs, measurements_per_file = 8, upscale = False, output_path = output_path_eval)
-
-
-
-
-
-
